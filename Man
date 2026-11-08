@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cat or Enemy - Final Fix</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    :root { --primary: #4f46e5; --primary-hover: #4338ca; --bg: #f3f4f6; --card-bg: #ffffff; --text: #1f2937; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 12px; }
+    .card { background: var(--card-bg); border-radius: 14px; padding: 22px; width: 100%; max-width: 950px; text-align: center; margin-top: 20px; }
+    button { background: var(--primary); color: #fff; border: none; padding: 9px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    button:hover:not(:disabled) { background: var(--primary-hover); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    input[type="text"] { padding: 9px 14px; border: 2px solid #e5e7eb; border-radius: 8px; }
+    .canvas-container { position: relative; width: 100%; max-width: 660px; margin: 0 auto; background: #fff; border: 2px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+    canvas { display: block; width: 100%; height: 340px; touch-action: none; } /* Fixed scrolling issue */
+    .hidden { display: none !important; }
+    .chat-box { display: flex; flex-direction: column; height: 250px; border: 1px solid #ccc; border-radius: 8px; background: #fafafa; overflow: hidden; text-align: left; margin-top: 10px; }
+    .chat-msgs { flex: 1; padding: 10px; overflow-y: auto; }
+    .chat-input-row { display: flex; padding: 8px; background: #fff; border-top: 1px solid #ccc; }
+    .chat-input-row input { flex: 1; margin-right: 8px; }
+  </style>
+</head>
+<body>
+
+  <div id="start-screen" class="card">
+    <h1>🐱 Cat or Enemy ⚔️</h1>
+    <input type="text" id="player-name" placeholder="Enter Name" value="Player">
+    <div style="margin-top: 15px;">
+      <button id="btn-create">Create Game</button>
+    </div>
+    <div style="margin-top: 15px;">
+      <input type="text" id="join-code" placeholder="Enter Code">
+      <button id="btn-join">Join</button>
+    </div>
+  </div>
+
+  <div id="lobby-screen" class="card hidden">
+    <h2>Lobby</h2>
+    <p>Code: <span id="room-code-tag" style="font-weight: bold;"></span></p>
+    <button id="btn-start" class="hidden">Start Game</button>
+  </div>
+
+  <div id="draw-screen" class="card hidden">
+    <div class="canvas-container"><canvas id="canvas" width="660" height="340"></canvas></div>
+    <button id="btn-clear" style="margin-top: 10px;">Clear</button>
+    <button id="btn-finish" style="margin-top: 10px;">Finish</button>
+  </div>
+
+  <div id="guess-screen" class="card hidden">
+    <h2>Guessing Phase</h2>
+    <div class="chat-box">
+      <div id="chat-msgs" class="chat-msgs"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-input" placeholder="Type your guess...">
+        <button id="btn-send">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const peerConfig = { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } };
+    let peer, isHost = false, connections = {}, hostConn = null, myName = "";
+
+    document.getElementById('btn-create').addEventListener('click', () => {
+      isHost = true; myName = document.getElementById('player-name').value || "Host";
+      const code = Math.random().toString(36).substring(2, 7).toUpperCase();
+      peer = new Peer(code, peerConfig);
+      
+      peer.on('open', () => {
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('lobby-screen').classList.remove('hidden');
+        document.getElementById('room-code-tag').innerText = code;
+        document.getElementById('btn-start').classList.remove('hidden');
+      });
+
+      peer.on('connection', (conn) => {
+        connections[conn.peer] = conn;
+        conn.on('data', (data) => handleData(data, conn.peer));
+      });
+    });
+
+    document.getElementById('btn-join').addEventListener('click', () => {
+      const code = document.getElementById('join-code').value.trim().toUpperCase();
+      if(!code) return; myName = document.getElementById('player-name').value || "Player";
+      peer = new Peer(peerConfig);
+
+      peer.on('open', () => {
+        hostConn = peer.connect(code);
+        hostConn.on('open', () => {
+          document.getElementById('start-screen').classList.add('hidden');
+          document.getElementById('lobby-screen').classList.remove('hidden');
+          document.getElementById('room-code-tag').innerText = code;
+          hostConn.on('data', handleData);
+        });
+      });
+    });
+
+    document.getElementById('btn-start').addEventListener('click', () => { broadcast({ type: 'START' }); startGame(); });
+
+    function handleData(data, senderId) {
+      if(data.type === 'START') startGame();
+      if(data.type === 'DRAW') drawPath(data.x0, data.y0, data.x1, data.y1, false);
+      if(data.type === 'CLEAR') ctx.clearRect(0,0,canvas.width,canvas.height);
+      if(data.type === 'CHAT') appendChat(data.sender, data.text);
+      
+      // HOST RELAY: Forward to all other clients
+      if(isHost) {
+        Object.entries(connections).forEach(([id, conn]) => {
+          if(id !== senderId) conn.send(data);
+        });
+      }
+    }
+
+    function broadcast(data) {
+      if(isHost) Object.values(connections).forEach(c => c.send(data));
+      else if(hostConn) hostConn.send(data);
+    }
+
+    function startGame() {
+      document.getElementById('lobby-screen').classList.add('hidden');
+      document.getElementById('draw-screen').classList.remove('hidden');
+      initCanvas();
+    }
+
+    const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
+
+    function initCanvas() {
+      let drawing = false, lastX = 0, lastY = 0;
+      function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: (clientX - rect.left) * (canvas.width / rect.width), y: (clientY - rect.top) * (canvas.height / rect.height) };
+      }
+      
+      function start(e) { drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; }
+      function move(e) { if(!drawing) return; e.preventDefault(); const p = getPos(e); drawPath(lastX, lastY, p.x, p.y, true); lastX = p.x; lastY = p.y; }
+      function stop() { drawing = false; }
+
+      // Mouse & Touch Events
+      canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); canvas.addEventListener('mouseup', stop);
+      canvas.addEventListener('touchstart', start, {passive:false}); canvas.addEventListener('touchmove', move, {passive:false}); canvas.addEventListener('touchend', stop);
+    }
+
+    function drawPath(x0, y0, x1, y1, emit) {
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      if(emit) broadcast({ type: 'DRAW', x0, y0, x1, y1 });
+    }
+
+    document.getElementById('btn-clear').addEventListener('click', () => { ctx.clearRect(0,0,canvas.width,canvas.height); broadcast({ type: 'CLEAR' }); });
+    document.getElementById('btn-finish').addEventListener('click', () => { document.getElementById('draw-screen').classList.add('hidden'); document.getElementById('guess-screen').classList.remove('hidden'); });
+
+    document.getElementById('btn-send').addEventListener('click', () => {
+      const input = document.getElementById('chat-input'); if(!input.value.trim()) return;
+      appendChat(myName, input.value.trim()); broadcast({ type: 'CHAT', sender: myName, text: input.value.trim() }); input.value = '';
+    });
+
+    function appendChat(sender, text) {
+      const box = document.getElementById('chat-msgs'), div = document.createElement('div'), b = document.createElement('b');
+      b.textContent = sender + ": "; div.appendChild(b); div.appendChild(document.createTextNode(text)); box.appendChild(div);
+    }
+  </script>
+</body>
+</html>
