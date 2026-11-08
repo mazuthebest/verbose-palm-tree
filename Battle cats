@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cat or Enemy - Dual (5-Code) & Team (6-Code)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- PeerJS for direct multiplayer -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --bg: #f3f4f6;
+      --card-bg: #ffffff;
+      --text: #1f2937;
+      --cat-color: #ec4899;
+      --enemy-color: #dc2626;
+      --dual-color: #0284c7;
+      --team-color: #8b5cf6;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px; }
+
+    .card { background: var(--card-bg); border-radius: 14px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); padding: 22px; width: 100%; max-width: 950px; text-align: center; }
+    h1 { font-size: 1.8rem; margin-bottom: 6px; color: var(--primary); }
+    h2 { font-size: 1.25rem; margin-bottom: 12px; }
+    p { margin-bottom: 10px; color: #4b5563; font-size: 0.95rem; }
+
+    /* Buttons & Inputs */
+    button { background: var(--primary); color: #fff; border: none; padding: 9px 18px; border-radius: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 600; transition: all 0.2s; }
+    button:hover:not(:disabled) { background: var(--primary-hover); transform: translateY(-1px); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    input[type="text"] { padding: 9px 14px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.95rem; outline: none; }
+    input[type="text"]:focus { border-color: var(--primary); }
+
+    /* Lobby */
+    .start-controls { display: flex; flex-direction: column; gap: 12px; max-width: 380px; margin: 0 auto; }
+    .btn-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .code-badge { font-size: 2rem; font-weight: bold; letter-spacing: 5px; padding: 8px 18px; border-radius: 8px; display: inline-block; margin: 8px 0; }
+    .code-dual { color: var(--dual-color); background: #e0f2fe; }
+    .code-team { color: var(--team-color); background: #ede9fe; }
+
+    /* Team Lobby */
+    .lobby-header-bar { display: flex; justify-content: space-between; align-items: center; background: #f9fafb; padding: 10px 16px; border-radius: 10px; border: 1px solid #e5e7eb; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+    .lobby-teams-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 15px; text-align: left; }
+    .team-card { border: 2px solid #e5e7eb; border-radius: 10px; padding: 12px; background: #fff; }
+    .team-card h3 { font-size: 1.05rem; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .member-list { list-style: none; min-height: 50px; font-size: 0.9rem; color: #374151; }
+    .member-list li { padding: 4px 0; border-bottom: 1px dashed #f3f4f6; }
+
+    /* Drawing Screen */
+    .timer-badge { font-size: 1.25rem; font-weight: 800; color: #b91c1c; background: #fee2e2; padding: 5px 14px; border-radius: 20px; display: inline-block; }
+    .inputs-bar { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px; background: #f9fafb; padding: 10px; border-radius: 10px; margin: 10px 0; }
+    .cat-lbl { color: var(--cat-color); font-weight: bold; cursor: pointer; }
+    .enemy-lbl { color: var(--enemy-color); font-weight: bold; cursor: pointer; }
+
+    .canvas-container { position: relative; width: 100%; max-width: 660px; margin: 0 auto; background: #fff; border: 2px solid #e5e7eb; border-radius: 10px; overflow: hidden; touch-action: none; }
+    canvas { display: block; width: 100%; height: 340px; cursor: crosshair; }
+
+    .pen-palette { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 7px; margin-top: 10px; }
+    .color-swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #ccc; cursor: pointer; }
+    .color-swatch.active { border-color: #000; transform: scale(1.15); }
+    .size-btn { width: 32px; height: 32px; border-radius: 50%; background: #e5e7eb; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; font-size: 0.85rem; }
+    .size-btn.active { background: var(--primary); color: #fff; }
+
+    /* Teammate Boards */
+    .teammate-boards-section { width: 100%; margin-top: 15px; background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 10px; padding: 12px; }
+    .teammate-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 8px; }
+    .teammate-slot { border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; padding: 5px; text-align: center; }
+    .teammate-slot img { width: 100%; height: 85px; object-fit: contain; background: #f1f5f9; border-radius: 4px; }
+    .teammate-slot p { font-size: 0.8rem; font-weight: bold; margin-top: 3px; }
+
+    /* Chat Section */
+    .chat-box { display: flex; flex-direction: column; height: 380px; border: 2px solid #e5e7eb; border-radius: 10px; background: #fafafa; overflow: hidden; text-align: left; }
+    .chat-header { background: #f3f4f6; padding: 8px 12px; font-weight: bold; font-size: 0.9rem; border-bottom: 1px solid #e5e7eb; }
+    .chat-msgs { flex: 1; padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; }
+    .chat-msg { padding: 6px 10px; border-radius: 6px; background: #fff; border: 1px solid #eee; }
+    .chat-msg.team { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+    .chat-msg.win { background: #dcfce7; border-color: #86efac; color: #15803d; font-weight: bold; }
+    .chat-input-row { display: flex; padding: 8px; background: #fff; border-top: 1px solid #e5e7eb; gap: 6px; }
+    .chat-input-row input { flex: 1; }
+
+    /* Guessing Screen */
+    .turn-bar { padding: 8px; font-weight: bold; font-size: 1rem; border-radius: 8px; margin-bottom: 12px; }
+    .guess-layout { display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; }
+    .opponent-side { flex: 1 1 340px; border: 2px solid #e5e7eb; border-radius: 10px; padding: 12px; background: #fff; display: flex; flex-direction: column; align-items: center; }
+    .chat-side { flex: 1 1 340px; }
+    .secret-box { padding: 25px 15px; background: #374151; color: #fff; border-radius: 8px; font-weight: bold; width: 100%; margin: 8px 0; }
+
+    .role-badge { padding: 4px 12px; border-radius: 16px; font-weight: bold; font-size: 0.9rem; margin-bottom: 8px; display: inline-block; }
+    .role-cat { background: #fce7f3; color: var(--cat-color); border: 1px solid var(--cat-color); }
+    .role-enemy { background: #fee2e2; color: var(--enemy-color); border: 1px solid var(--enemy-color); }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. START / MODE SELECTION SCREEN -->
+  <div id="start-screen" class="card">
+    <h1>🐱 Cat or Enemy ⚔️</h1>
+    <p>Choose your mode: 1v1 Dual (5-letter code) or Team Play (6-letter code)!</p>
+
+    <div class="start-controls">
+      <input type="text" id="player-name" placeholder="Enter your display name" maxlength="15" value="Player">
+
+      <div id="initial-buttons" class="btn-row">
+        <button id="btn-show-create">Create a Game</button>
+        <button id="btn-show-enter-code">Enter Code</button>
+      </div>
+
+      <!-- Mode selection when clicking Create -->
+      <div id="create-mode-selection" class="hidden" style="display:flex; flex-direction:column; gap:8px;">
+        <p><strong>Select Mode to Host:</strong></p>
+        <button id="btn-create-dual" style="background:var(--dual-color);">🎮 1v1 Dual Player (5-Letter Code)</button>
+        <button id="btn-create-team" style="background:var(--team-color);">👥 Play Team (6-Letter Code)</button>
+        <button style="background:#9ca3af;" onclick="showInitialMenu()">Back</button>
+      </div>
+
+      <!-- Join with Code -->
+      <div id="join-section" class="hidden" style="display:flex; flex-direction:column; gap:8px;">
+        <input type="text" id="join-code" placeholder="Enter 5 or 6 letter code" maxlength="6" style="text-transform:uppercase;">
+        <p id="code-detect-hint" style="font-size:0.8rem; color:#6b7280; margin:0;">5 characters = Dual | 6 characters = Team</p>
+        <button id="btn-join-game">Join Game</button>
+        <button id="btn-join-back" style="background:#9ca3af;" onclick="showInitialMenu()">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. DUAL WAITING SCREEN (Host 1v1 Waiting Room) -->
+  <div id="dual-waiting-screen" class="card hidden">
+    <h2>🎮 Dual Player 1v1 Lobby</h2>
+    <p>Share this <strong>5-character</strong> code with Player 2:</p>
+    <div class="code-badge code-dual" id="dual-room-code-tag">-----</div>
+    <p style="color:#6b7280; font-size:0.9rem;">Waiting for Player 2 to join... Drawing will start automatically!</p>
+  </div>
+
+  <!-- 3. TEAM LOBBY SCREEN -->
+  <div id="team-lobby-screen" class="card hidden">
+    <div class="lobby-header-bar">
+      <div>
+        <span>Team Room Code (6-chars): </span>
+        <span class="code-badge code-team" id="team-room-code-tag" style="font-size:1.4rem; padding:4px 10px;">------</span>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button id="btn-host-create-teams" class="hidden" style="background:#f59e0b;">➕ Create Teams</button>
+        <button id="btn-host-start-game" class="hidden" style="background:#16a34a;">🚀 Start Game</button>
+      </div>
+    </div>
+
+    <p style="text-align:left;"><strong>Choose a Team to Join:</strong></p>
+    <div id="lobby-teams-container" class="lobby-teams-grid"></div>
+
+    <div style="margin-top:15px; text-align:left;">
+      <p><strong>Participants in Lobby:</strong> <span id="lobby-participants-count">0</span></p>
+      <div id="participants-list" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+    </div>
+  </div>
+
+  <!-- 4. DRAWING SCREEN -->
+  <div id="draw-screen" class="card hidden">
+    <div style="display:flex; justify-space-between; align-items:center; margin-bottom:8px;">
+      <div class="timer-badge">⏳ Time: <span id="draw-timer">02:00</span></div>
+      <span style="font-size:0.85rem; font-weight:bold; color:#059669;">🔒 Secret (Opponents cannot see you draw)</span>
+    </div>
+
+    <div class="inputs-bar">
+      <div style="display:flex; gap:12px;">
+        <label class="cat-lbl"><input type="radio" name="char-type" value="Cat" checked> 🐱 Cat</label>
+        <label class="enemy-lbl"><input type="radio" name="char-type" value="Enemy"> ⚔️ Enemy</label>
+      </div>
+      <div>
+        <label for="image-name"><strong>Secret Name: </strong></label>
+        <input type="text" id="image-name" placeholder="e.g. Ninja Cat, Evil Boss" maxlength="25">
+      </div>
+    </div>
+
+    <div class="canvas-container">
+      <canvas id="canvas" width="660" height="340"></canvas>
+    </div>
+
+    <div class="pen-palette">
+      <span>Pens:</span>
+      <div class="color-swatch active" style="background:#000;" data-color="#000000"></div>
+      <div class="color-swatch" style="background:#ef4444;" data-color="#ef4444"></div>
+      <div class="color-swatch" style="background:#3b82f6;" data-color="#3b82f6"></div>
+      <div class="color-swatch" style="background:#10b981;" data-color="#10b981"></div>
+      <div class="color-swatch" style="background:#f59e0b;" data-color="#f59e0b"></div>
+      <div class="color-swatch" style="background:#ec4899;" data-color="#ec4899"></div>
+      <div class="color-swatch" style="background:#ffffff; border:1px dashed #999;" data-color="#ffffff"></div>
+
+      <span style="margin-left:8px;">Size:</span>
+      <div class="size-btn active" data-size="3">•</div>
+      <div class="size-btn" data-size="8">●</div>
+      <div class="size-btn" data-size="16">⬤</div>
+      <button id="btn-clear-canvas" style="background:#6b7280; padding:4px 8px; font-size:0.8rem; margin-left:8px;">Clear</button>
+    </div>
+
+    <div style="margin-top:10px;">
+      <button id="btn-finish-wait" style="background:#16a34a;">✅ Finish & Wait</button>
+      <button id="btn-cancel-finish" class="hidden" style="background:#dc2626;">↩️ Cancel / Keep Drawing</button>
+    </div>
+
+    <!-- Teammate Live Boards -->
+    <div id="teammate-boards-container" class="teammate-boards-section hidden">
+      <p style="text-align:left; font-weight:bold; font-size:0.9rem;">👥 Teammate Drawing Boards:</p>
+      <div id="teammate-grid" class="teammate-grid"></div>
+    </div>
+
+    <!-- Private Team Chat -->
+    <div id="team-chat-container" class="chat-box hidden" style="height:200px; margin-top:12px;">
+      <div class="chat-header">🔒 Private Team Chat</div>
+      <div id="team-chat-msgs" class="chat-msgs"></div>
+      <div class="chat-input-row">
+        <input type="text" id="team-chat-input" placeholder="Message your teammates...">
+        <button id="btn-send-team-chat">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. GUESSING / CHAT SCREEN -->
+  <div id="guess-screen" class="card hidden">
+    <h2>🎯 Guessing Phase</h2>
+    <div id="turn-banner" class="turn-bar" style="background:#fef08a; color:#854d0e;">Waiting for turns...</div>
+
+    <div class="guess-layout">
+      <!-- Opponent side -->
+      <div class="opponent-side">
+        <div id="opponent-role-tag" class="role-badge role-cat hidden">Role: 🐱 Cat</div>
+        <p><strong id="opponent-info-header">Opponent</strong>'s Drawing</p>
+
+        <div class="secret-box" id="secret-drawing-box">
+          <p style="font-size:1.8rem;">❓</p>
+          <p>Drawing is Hidden!</p>
+          <p style="font-size:0.8rem; opacity:0.85; margin-top:4px;">Ask questions in chat to guess.</p>
+        </div>
+        <img id="opponent-canvas-img" src="" alt="Opponent Drawing" class="hidden" style="max-width:100%; height:auto; border-radius:8px; border:1px solid #ddd; margin:8px 0;">
+
+        <div style="margin-top:15px; border-top:1px solid #eee; padding-top:10px; width:100%;">
+          <p style="font-size:0.85rem; margin-bottom:6px;">Did someone guess correctly?</p>
+          <button id="btn-someone-win" style="background:#16a34a;">🎉 Correct! (They Won!)</button>
+          <button id="btn-exit-game" style="background:#6b7280; margin-left:6px;">🚪 Exit Game</button>
+        </div>
+      </div>
+
+      <!-- Main Chat Side -->
+      <div class="chat-side">
+        <div class="chat-box">
+          <div class="chat-header">💬 Chat & Guess (1 Turn Each)</div>
+          <div id="main-chat-msgs" class="chat-msgs"></div>
+          <div class="chat-input-row">
+            <input type="text" id="main-chat-input" placeholder="Type your 1 guess/question..." disabled>
+            <button id="btn-send-main-chat" disabled>Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Standard Google STUN servers to guarantee cross-network connections
+    const peerConfig = {
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' }
+        ]
+      }
+    };
+
+    /* ================= STATE & NETWORKING ================= */
+    let peer = null;
+    let isHost = false;
+    let gameMode = "dual";
+    let roomCode = "";
+    let myId = "";
+    let myName = "Player";
+    let myTeamId = 1;
+
+    let hostConnections = {}; // peerId -> conn
+    let hostConn = null;
+
+    let participants = [];
+    let teams = [
+      { id: 1, name: "Team 1" },
+      { id: 2, name: "Team 2" }
+    ];
+
+    let mySecretName = "";
+    let myCategory = "Cat";
+    let myDrawingDataUrl = "";
+    let gameTimer = null;
+    let timeLeft = 120;
+    let currentTurnIndex = 0;
+    let turnOrder = [];
+    let gameEnded = false;
+
+    const startScreen = document.getElementById('start-screen');
+    const dualWaitScreen = document.getElementById('dual-waiting-screen');
+    const teamLobbyScreen = document.getElementById('team-lobby-screen');
+    const drawScreen = document.getElementById('draw-screen');
+    const guessScreen = document.getElementById('guess-screen');
+
+    function generateCode(len) {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let res = "";
+      for (let i = 0; i < len; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
+      return res;
+    }
+
+    function showInitialMenu() {
+      document.getElementById('initial-buttons').classList.remove('hidden');
+      document.getElementById('create-mode-selection').classList.add('hidden');
+      document.getElementById('join-section').classList.add('hidden');
+    }
+
+    document.getElementById('btn-show-create').addEventListener('click', () => {
+      document.getElementById('initial-buttons').classList.add('hidden');
+      document.getElementById('create-mode-selection').classList.remove('hidden');
+    });
+
+    document.getElementById('btn-show-enter-code').addEventListener('click', () => {
+      document.getElementById('initial-buttons').classList.add('hidden');
+      document.getElementById('join-section').classList.remove('hidden');
+    });
+
+    document.getElementById('join-code').addEventListener('input', (e) => {
+      const val = e.target.value.trim();
+      const hint = document.getElementById('code-detect-hint');
+      if (val.length === 5) {
+        hint.innerText = "✓ 1v1 Dual Player Code (5 characters)";
+        hint.style.color = "var(--dual-color)";
+      } else if (val.length === 6) {
+        hint.innerText = "✓ Team Play Code (6 characters)";
+        hint.style.color = "var(--team-color)";
+      } else {
+        hint.innerText = "5 characters = Dual | 6 characters = Team";
+        hint.style.color = "#6b7280";
+      }
+    });
+
+    /* ================= 1. HOST CREATION ================= */
+    document.getElementById('btn-create-dual').addEventListener('click', () => initHost("dual"));
+    document.getElementById('btn-create-team').addEventListener('click', () => initHost("team"));
+
+    function initHost(mode) {
+      if (peer) { peer.destroy(); }
+      gameMode = mode;
+      isHost = true;
+      myName = document.getElementById('player-name').value.trim() || "Host";
+
+      roomCode = (mode === "dual") ? generateCode(5) : generateCode(6);
+      const targetId = (mode === "dual" ? "catdual-" : "catteam-") + roomCode;
+
+      peer = new Peer(targetId, peerConfig);
+
+      peer.on('open', (id) => {
+        myId = id;
+        participants = [{ id: myId, name: myName, teamId: 1, finished: false }];
+        startScreen.classList.add('hidden');
+
+        if (gameMode === "dual") {
+          dualWaitScreen.classList.remove('hidden');
+          document.getElementById('dual-room-code-tag').innerText = roomCode;
+        } else {
+          teamLobbyScreen.classList.remove('hidden');
+          document.getElementById('team-room-code-tag').innerText = roomCode;
+          document.getElementById('btn-host-create-teams').classList.remove('hidden');
+          document.getElementById('btn-host-start-game').classList.remove('hidden');
+          renderTeamLobby();
+        }
+      });
+
+      peer.on('connection', (conn) => {
+        hostConnections[conn.peer] = conn;
+
+        conn.on('data', (data) => {
+          handleHostIncomingData(conn.peer, data);
+        });
+
+        conn.on('close', () => {
+          delete hostConnections[conn.peer];
+          participants = participants.filter(p => p.id !== conn.peer);
+          
+          if (turnOrder.length > 0) {
+            turnOrder = turnOrder.filter(id => id !== conn.peer);
+            if (currentTurnIndex >= turnOrder.length) currentTurnIndex = 0;
+            if (turnOrder.length > 0) broadcastAll({ type: 'TURN_CHANGE', activeId: turnOrder[currentTurnIndex] });
+          }
+          
+          if (gameMode === "team" && !gameEnded) broadcastLobbyState();
+        });
+      });
+
+      peer.on('error', (err) => {
+        if (err.type === 'unavailable-id') {
+          // Automatic collision retry
+          initHost(mode);
+        } else {
+          alert("Peer error: " + err.type + ". Ensure AdBlockers or Brave Shields are disabled for WebSockets.");
+        }
+      });
+    }
+
+    document.getElementById('btn-host-create-teams').addEventListener('click', () => {
+      const num = parseInt(prompt("How many teams? (2, 3, or 4)", "2"));
+      if (num && num >= 2 && num <= 4) {
+        teams = [];
+        for (let i = 1; i <= num; i++) teams.push({ id: i, name: `Team ${i}` });
+        
+        // Re-balance existing participants across new teams
+        participants.forEach((p, idx) => {
+          p.teamId = (idx % teams.length) + 1;
+        });
+        
+        broadcastLobbyState();
+        renderTeamLobby();
+      }
+    });
+
+    document.getElementById('btn-host-start-game').addEventListener('click', () => {
+      broadcastAll({ type: 'START_GAME_NOW' });
+      startDrawingPhase(180);
+    });
+
+    /* ================= 2. GUEST JOIN ================= */
+    document.getElementById('btn-join-game').addEventListener('click', () => {
+      myName = document.getElementById('player-name').value.trim() || "Guest";
+      const code = document.getElementById('join-code').value.trim().toUpperCase();
+
+      if (code.length === 5) {
+        gameMode = "dual";
+      } else if (code.length === 6) {
+        gameMode = "team";
+      } else {
+        alert("Please enter a valid 5-character (Dual) or 6-character (Team) code!");
+        return;
+      }
+
+      roomCode = code;
+      isHost = false;
+
+      const joinBtn = document.getElementById('btn-join-game');
+      joinBtn.disabled = true;
+      joinBtn.innerText = "Connecting... ⏳";
+
+      const targetHostId = (gameMode === "dual" ? "catdual-" : "catteam-") + roomCode;
+      if (peer) { peer.destroy(); }
+      peer = new Peer(peerConfig);
+
+      let connectionTimeout = setTimeout(() => {
+        if (!hostConn || !hostConn.open) {
+          joinBtn.disabled = false;
+          joinBtn.innerText = "Join Game";
+          alert("Could not connect to room " + roomCode + "!\n\n1. Check that the host is on the waiting screen.\n2. Verify the code.\n3. Turn off AdBlocker / Brave Shields if enabled.");
+        }
+      }, 8000);
+
+      peer.on('open', (id) => {
+        myId = id;
+        hostConn = peer.connect(targetHostId, { reliable: true });
+
+        hostConn.on('open', () => {
+          clearTimeout(connectionTimeout);
+          joinBtn.disabled = false;
+          joinBtn.innerText = "Join Game";
+          hostConn.send({ type: 'JOIN_REQUEST', name: myName, mode: gameMode });
+        });
+
+        hostConn.on('data', (data) => handleClientIncomingData(data));
+
+        hostConn.on('error', () => {
+          clearTimeout(connectionTimeout);
+          joinBtn.disabled = false;
+          joinBtn.innerText = "Join Game";
+          alert("Failed to connect to room: " + roomCode);
+        });
+      });
+
+      peer.on('error', () => {
+        clearTimeout(connectionTimeout);
+        joinBtn.disabled = false;
+        joinBtn.innerText = "Join Game";
+        alert("Could not reach room: " + roomCode + ". Check the code and try again.");
+      });
+    });
+
+    /* ================= 3. PACKET HANDLERS ================= */
+    function handleHostIncomingData(peerId, data) {
+      switch (data.type) {
+        case 'JOIN_REQUEST':
+          // Correct balance calculation: alternate team assignments sequentially
+          const assignedTeamId = ((participants.length) % teams.length) + 1;
+          
+          participants.push({
+            id: peerId,
+            name: data.name,
+            teamId: assignedTeamId,
+            finished: false
+          });
+
+          if (gameMode === "dual") {
+            dualWaitScreen.classList.add('hidden');
+            if (hostConnections[peerId]) {
+              hostConnections[peerId].send({ type: 'DUAL_START', opponentName: myName });
+            }
+            startDrawingPhase(120);
+          } else {
+            broadcastLobbyState();
+          }
+          break;
+
+        case 'SWITCH_TEAM':
+          const p = participants.find(x => x.id === peerId);
+          if (p) p.teamId = data.teamId;
+          broadcastLobbyState();
+          break;
+
+        case 'CANVAS_STROKE_SNAPSHOT':
+          const sender = participants.find(x => x.id === peerId);
+          if (sender) {
+            participants.filter(x => x.teamId === sender.teamId && x.id !== sender.id).forEach(tm => {
+              if (tm.id === myId) updateTeammateThumbnail(sender.name, data.img);
+              else if (hostConnections[tm.id]) hostConnections[tm.id].send({ type: 'TEAM_CANVAS_UPDATE', author: sender.name, img: data.img });
+            });
+          }
+          break;
+
+        case 'TEAM_CHAT':
+          const author = participants.find(x => x.id === peerId);
+          if (author) {
+            participants.filter(x => x.teamId === author.teamId).forEach(tm => {
+              if (tm.id === myId) appendTeamMessage(author.name, data.text);
+              else if (hostConnections[tm.id]) hostConnections[tm.id].send({ type: 'TEAM_CHAT_MSG', sender: author.name, text: data.text });
+            });
+          }
+          break;
+
+        case 'SUBMIT_DRAWING':
+          const player = participants.find(x => x.id === peerId);
+          if (player) {
+            player.secretName = data.secretName;
+            player.category = data.category;
+            player.drawingUrl = data.drawingUrl;
+          }
+          checkAllDrawingsReady();
+          break;
+
+        case 'MAIN_CHAT':
+          broadcastAll({ type: 'MAIN_CHAT_MSG', sender: data.sender, text: data.text });
+          if (turnOrder.length > 0) {
+            currentTurnIndex = (currentTurnIndex + 1) % turnOrder.length;
+            broadcastAll({ type: 'TURN_CHANGE', activeId: turnOrder[currentTurnIndex] });
+          }
+          break;
+
+        case 'PLAYER_WIN':
+          broadcastAll({ type: 'GAME_OVER_WIN', winner: data.winner, secretWord: data.secretWord });
+          break;
+      }
+    }
+
+    function handleClientIncomingData(data) {
+      switch (data.type) {
+        case 'DUAL_START':
+          startScreen.classList.add('hidden');
+          startDrawingPhase(120);
+          break;
+
+        case 'LOBBY_STATE':
+          teams = data.teams;
+          participants = data.participants;
+          const meInList = participants.find(p => p.id === myId);
+          if (meInList) myTeamId = meInList.teamId;
+          
+          startScreen.classList.add('hidden');
+          teamLobbyScreen.classList.remove('hidden');
+          document.getElementById('team-room-code-tag').innerText = roomCode;
+          renderTeamLobby();
+          break;
+
+        case 'START_GAME_NOW':
+          startDrawingPhase(180);
+          break;
+
+        case 'TEAM_CANVAS_UPDATE':
+          updateTeammateThumbnail(data.author, data.img);
+          break;
+
+        case 'TEAM_CHAT_MSG':
+          appendTeamMessage(data.sender, data.text);
+          break;
+
+        case 'ALL_DRAWINGS_LOCKED':
+          setupGuessingUI(data.participantsData);
+          break;
+
+        case 'MAIN_CHAT_MSG':
+          appendMainMessage(data.sender, data.text);
+          break;
+
+        case 'TURN_CHANGE':
+          handleTurnUpdate(data.activeId);
+          break;
+
+        case 'GAME_OVER_WIN':
+          endGameWithWinner(data.winner, data.secretWord);
+          break;
+      }
+    }
+
+    function broadcastLobbyState() {
+      renderTeamLobby();
+      broadcastAll({
+        type: 'LOBBY_STATE',
+        teams: teams,
+        participants: participants
+      });
+    }
+
+    function broadcastAll(data) {
+      Object.values(hostConnections).forEach(conn => {
+        if (conn && conn.open) conn.send(data);
+      });
+      if (isHost) {
+        if (data.type === 'MAIN_CHAT_MSG') appendMainMessage(data.sender, data.text);
+        if (data.type === 'TURN_CHANGE') handleTurnUpdate(data.activeId);
+        if (data.type === 'GAME_OVER_WIN') endGameWithWinner(data.winner, data.secretWord);
+      }
+    }
+
+    function renderTeamLobby() {
+      const container = document.getElementById('lobby-teams-container');
+      container.innerHTML = "";
+
+      teams.forEach(t => {
+        const teamBox = document.createElement('div');
+        teamBox.className = "team-card";
+        const isMyTeam = (myTeamId === t.id);
+
+        teamBox.innerHTML = `
+          <h3>${t.name} <button onclick="joinTeam(${t.id})" ${isMyTeam ? 'disabled' : ''} style="font-size:0.75rem; padding:4px 8px;">Join</button></h3>
+          <ul class="member-list" id="team-list-${t.id}"></ul>
+        `;
+        container.appendChild(teamBox);
+      });
+
+      participants.forEach(p => {
+        const ul = document.getElementById(`team-list-${p.teamId}`);
+        if (ul) {
+          const li = document.createElement('li');
+          li.innerText = p.name + (p.id === myId ? " (You)" : "");
+          ul.appendChild(li);
+        }
+      });
+
+      document.getElementById('lobby-participants-count').innerText = participants.length;
+      document.getElementById('participants-list').innerHTML = participants.map(p =>
+        `<span style="background:#e0e7ff; padding:2px 8px; border-radius:12px; font-size:0.8rem;">${p.name}</span>`
+      ).join(' ');
+    }
+
+    window.joinTeam = function(tId) {
+      myTeamId = tId;
+      if (isHost) {
+        const p = participants.find(x => x.id === myId);
+        if (p) p.teamId = tId;
+        broadcastLobbyState();
+      } else {
+        hostConn.send({ type: 'SWITCH_TEAM', teamId: tId });
+      }
+      renderTeamLobby();
+    };
+
+    /* ================= 4. DRAWING ================= */
+    function startDrawingPhase(seconds) {
+      dualWaitScreen.classList.add('hidden');
+      teamLobbyScreen.classList.add('hidden');
+      startScreen.classList.add('hidden');
+      drawScreen.classList.remove('hidden');
+
+      if (gameMode === "team") {
+        document.getElementById('teammate-boards-container').classList.remove('hidden');
+        document.getElementById('team-chat-container').classList.remove('hidden');
+      }
+
+      initCanvas();
+      timeLeft = seconds;
+      updateTimerBadge();
+
+      gameTimer = setInterval(() => {
+        timeLeft--;
+        updateTimerBadge();
+        if (timeLeft <= 0) {
+          clearInterval(gameTimer);
+          lockAndSubmitDrawing();
+        }
+      }, 1000);
+    }
+
+    function updateTimerBadge() {
+      const mins = String(Math.floor(timeLeft / 60)).padStart(2, '0');
+      const secs = String(timeLeft % 60).padStart(2, '0');
+      document.getElementById('draw-timer').innerText = `${mins}:${secs}`;
+    }
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false;
+    let currentColor = '#000000';
+    let currentSize = 3;
+    let canvasLocked = false;
+
+    function initCanvas() {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineCap = 'round';
+
+      document.querySelectorAll('.color-swatch').forEach(s => {
+        s.addEventListener('click', () => {
+          if (canvasLocked) return;
+          document.querySelectorAll('.color-swatch').forEach(x => x.classList.remove('active'));
+          s.classList.add('active');
+          currentColor = s.dataset.color;
+        });
+      });
+
+      document.querySelectorAll('.size-btn').forEach(b => {
+        b.addEventListener('click', () => {
+          if (canvasLocked) return;
+          document.querySelectorAll('.size-btn').forEach(x => x.classList.remove('active'));
+          b.classList.add('active');
+          currentSize = parseInt(b.dataset.size);
+        });
+      });
+
+      document.getElementById('btn-clear-canvas').addEventListener('click', () => {
+        if (canvasLocked) return;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        syncTeammateCanvas();
+      });
+
+      function getPos(e) {
+        const r = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return {
+          x: (clientX - r.left) * (canvas.width / r.width),
+          y: (clientY - r.top) * (canvas.height / r.height)
+        };
+      }
+
+      function start(e) {
+        if (canvasLocked) return;
+        isDrawing = true;
+        const p = getPos(e);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+      }
+      function draw(e) {
+        if (!isDrawing || canvasLocked) return;
+        e.preventDefault();
+        const p = getPos(e);
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = currentSize;
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+      }
+      function stop() {
+        if (isDrawing) {
+          isDrawing = false;
+          syncTeammateCanvas();
+        }
+      }
+
+      canvas.addEventListener('mousedown', start);
+      canvas.addEventListener('mousemove', draw);
+      canvas.addEventListener('mouseup', stop);
+      canvas.addEventListener('mouseleave', stop);
+      canvas.addEventListener('touchstart', start, { passive: false });
+      canvas.addEventListener('touchmove', draw, { passive: false });
+      canvas.addEventListener('touchend', stop);
+    }
+
+    function syncTeammateCanvas() {
+      if (gameMode !== "team") return;
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.4);
+
+      if (isHost) {
+        participants.filter(p => p.teamId === myTeamId && p.id !== myId).forEach(tm => {
+          if (hostConnections[tm.id]) hostConnections[tm.id].send({ type: 'TEAM_CANVAS_UPDATE', author: myName, img: dataUrl });
+        });
+      } else {
+        if (hostConn && hostConn.open) {
+          hostConn.send({ type: 'CANVAS_STROKE_SNAPSHOT', img: dataUrl });
+        }
+      }
+    }
+
+    function updateTeammateThumbnail(author, imgUrl) {
+      let slot = document.getElementById(`tm-slot-${author}`);
+      const grid = document.getElementById('teammate-grid');
+      if (!slot) {
+        slot = document.createElement('div');
+        slot.id = `tm-slot-${author}`;
+        slot.className = "teammate-slot";
+        slot.innerHTML = `<img src="${imgUrl}"><p>${author}</p>`;
+        grid.appendChild(slot);
+      } else {
+        slot.querySelector('img').src = imgUrl;
+      }
+    }
+
+    document.getElementById('btn-send-team-chat').addEventListener('click', sendTeamChat);
+    document.getElementById('team-chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendTeamChat(); });
+
+    function sendTeamChat() {
+      const input = document.getElementById('team-chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      appendTeamMessage(`${myName} (You)`, text);
+
+      if (isHost) {
+        participants.filter(p => p.teamId === myTeamId && p.id !== myId).forEach(tm => {
+          if (hostConnections[tm.id]) hostConnections[tm.id].send({ type: 'TEAM_CHAT_MSG', sender: myName, text: text });
+        });
+      } else {
+        if (hostConn && hostConn.open) {
+          hostConn.send({ type: 'TEAM_CHAT', text: text });
+        }
+      }
+    }
+
+    function appendTeamMessage(sender, text) {
+      const box = document.getElementById('team-chat-msgs');
+      const d = document.createElement('div');
+      d.className = "chat-msg team";
+      d.innerHTML = `<strong>${sender}:</strong> ${text}`;
+      box.appendChild(d);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    document.getElementById('btn-finish-wait').addEventListener('click', () => {
+      canvasLocked = true;
+      document.getElementById('btn-finish-wait').classList.add('hidden');
+      document.getElementById('btn-cancel-finish').classList.remove('hidden');
+    });
+
+    document.getElementById('btn-cancel-finish').addEventListener('click', () => {
+      canvasLocked = false;
+      document.getElementById('btn-cancel-finish').classList.add('hidden');
+      document.getElementById('btn-finish-wait').classList.remove('hidden');
+    });
+
+    function lockAndSubmitDrawing() {
+      canvasLocked = true;
+      mySecretName = document.getElementById('image-name').value.trim() || document.querySelector('input[name="char-type"]:checked').value;
+      myCategory = document.querySelector('input[name="char-type"]:checked').value;
+      // Optimized JPEG export to avoid network socket bloat
+      myDrawingDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+
+      if (isHost) {
+        const me = participants.find(p => p.id === myId);
+        if (me) {
+          me.secretName = mySecretName;
+          me.category = myCategory;
+          me.drawingUrl = myDrawingDataUrl;
+        }
+        checkAllDrawingsReady();
+      } else {
+        if (hostConn && hostConn.open) {
+          hostConn.send({
+            type: 'SUBMIT_DRAWING',
+            secretName: mySecretName,
+            category: myCategory,
+            drawingUrl: myDrawingDataUrl
+          });
+        }
+      }
+    }
+
+    function checkAllDrawingsReady() {
+      const allSubmitted = participants.every(p => p.drawingUrl);
+      if (allSubmitted || timeLeft <= 0) {
+        const payload = participants.map(p => ({
+          id: p.id,
+          name: p.name,
+          teamId: p.teamId,
+          category: p.category,
+          secretName: p.secretName,
+          drawingUrl: p.drawingUrl
+        }));
+
+        broadcastAll({ type: 'ALL_DRAWINGS_LOCKED', participantsData: payload });
+        setupGuessingUI(payload);
+      }
+    }
+
+    /* ================= 5. GUESSING & MAIN CHAT ================= */
+    let opponentData = null;
+
+    function setupGuessingUI(allData) {
+      if (gameTimer) clearInterval(gameTimer);
+      drawScreen.classList.add('hidden');
+      guessScreen.classList.remove('hidden');
+
+      if (gameMode === "dual") {
+        opponentData = allData.find(p => p.id !== myId) || null;
+      } else {
+        opponentData = allData.find(p => p.teamId !== myTeamId) || null;
+      }
+
+      if (opponentData) {
+        document.getElementById('opponent-info-header').innerText = opponentData.name;
+        const roleTag = document.getElementById('opponent-role-tag');
+        roleTag.classList.remove('hidden');
+        roleTag.innerText = `Their Role: ${opponentData.category === 'Cat' ? '🐱 Cat' : '⚔️ Enemy'}`;
+        roleTag.className = `role-badge ${opponentData.category === 'Cat' ? 'role-cat' : 'role-enemy'}`;
+      }
+
+      if (isHost) {
+        turnOrder = allData.map(p => p.id);
+        currentTurnIndex = 0;
+        broadcastAll({ type: 'TURN_CHANGE', activeId: turnOrder[currentTurnIndex] });
+      }
+    }
+
+    function handleTurnUpdate(activeId) {
+      const isMyTurn = (activeId === myId);
+      const activePlayer = participants.find(p => p.id === activeId);
+      const activeName = activePlayer ? activePlayer.name : "Someone";
+
+      const banner = document.getElementById('turn-banner');
+      const input = document.getElementById('main-chat-input');
+      const btn = document.getElementById('btn-send-main-chat');
+
+      if (isMyTurn) {
+        banner.innerText = `👉 It's YOUR turn to guess/chat!`;
+        banner.style.background = "#bbf7d0";
+        banner.style.color = "#14532d";
+        input.disabled = false;
+        btn.disabled = false;
+        input.focus();
+      } else {
+        banner.innerText = `⏳ Turn: ${activeName}'s 1 guess...`;
+        banner.style.background = "#fef08a";
+        banner.style.color = "#854d0e";
+        input.disabled = true;
+        btn.disabled = true;
+      }
+    }
+
+    document.getElementById('btn-send-main-chat').addEventListener('click', sendMainChat);
+    document.getElementById('main-chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMainChat(); });
+
+    function sendMainChat() {
+      const input = document.getElementById('main-chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+
+      if (isHost) {
+        broadcastAll({ type: 'MAIN_CHAT_MSG', sender: myName, text: text });
+        if (turnOrder.length > 0) {
+          currentTurnIndex = (currentTurnIndex + 1) % turnOrder.length;
+          broadcastAll({ type: 'TURN_CHANGE', activeId: turnOrder[currentTurnIndex] });
+        }
+      } else {
+        if (hostConn && hostConn.open) {
+          hostConn.send({ type: 'MAIN_CHAT', sender: myName, text: text });
+        }
+      }
+    }
+
+    function appendMainMessage(sender, text) {
+      const box = document.getElementById('main-chat-msgs');
+      const d = document.createElement('div');
+      d.className = "chat-msg";
+      d.innerHTML = `<strong>${sender}:</strong> ${text}`;
+      box.appendChild(d);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    document.getElementById('btn-someone-win').addEventListener('click', () => {
+      const winnerName = prompt("Enter the name of the player who guessed correctly:", opponentData ? opponentData.name : "");
+      if (winnerName) {
+        if (isHost) {
+          broadcastAll({ type: 'GAME_OVER_WIN', winner: winnerName, secretWord: mySecretName });
+        } else {
+          if (hostConn && hostConn.open) {
+            hostConn.send({ type: 'PLAYER_WIN', winner: winnerName, secretWord: mySecretName });
+          }
+        }
+      }
+    });
+
+    function endGameWithWinner(winner, secretWord) {
+      gameEnded = true;
+
+      document.getElementById('secret-drawing-box').classList.add('hidden');
+      const img = document.getElementById('opponent-canvas-img');
+      if (opponentData && opponentData.drawingUrl) {
+        img.src = opponentData.drawingUrl;
+        img.classList.remove('hidden');
+      }
+
+      const box = document.getElementById('main-chat-msgs');
+      const d = document.createElement('div');
+      d.className = "chat-msg win";
+      d.innerHTML = `🏆 🎉 ${winner} GUESSED CORRECTLY AND WON! (Secret Word: "${secretWord || mySecretName}")`;
+      box.appendChild(d);
+      box.scrollTop = box.scrollHeight;
+
+      document.getElementById('turn-banner').innerText = `🎉 Game Over! ${winner} Won!`;
+      document.getElementById('turn-banner').style.background = "#bbf7d0";
+      document.getElementById('turn-banner').style.color = "#14532d";
+      document.getElementById('main-chat-input').disabled = true;
+      document.getElementById('btn-send-main-chat').disabled = true;
+    }
+
+    document.getElementById('btn-exit-game').addEventListener('click', () => {
+      if (confirm("Are you sure you want to exit?")) {
+        window.location.reload();
+      }
+    });
+  </script>
+</body>
+</html>
