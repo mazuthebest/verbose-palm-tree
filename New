@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cat or Enemy - Fixed & Complete</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    :root { --primary: #4f46e5; --primary-hover: #4338ca; --bg: #f3f4f6; --card-bg: #ffffff; --text: #1f2937; --cat-color: #ec4899; --enemy-color: #dc2626; --dual-color: #0284c7; --team-color: #8b5cf6; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 12px; }
+    .card { background: var(--card-bg); border-radius: 14px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); padding: 22px; width: 100%; max-width: 950px; text-align: center; margin-top: 20px; }
+    button { background: var(--primary); color: #fff; border: none; padding: 9px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    button:hover:not(:disabled) { background: var(--primary-hover); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    input[type="text"] { padding: 9px 14px; border: 2px solid #e5e7eb; border-radius: 8px; }
+    .canvas-container { position: relative; width: 100%; max-width: 660px; margin: 0 auto; background: #fff; border: 2px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+    canvas { display: block; width: 100%; height: 340px; }
+    .hidden { display: none !important; }
+    .chat-box { display: flex; flex-direction: column; height: 250px; border: 1px solid #ccc; border-radius: 8px; background: #fafafa; overflow: hidden; text-align: left; margin-top: 10px; }
+    .chat-msgs { flex: 1; padding: 10px; overflow-y: auto; }
+    .chat-input-row { display: flex; padding: 8px; background: #fff; border-top: 1px solid #ccc; }
+    .chat-input-row input { flex: 1; margin-right: 8px; }
+    .code-badge { font-size: 1.5rem; font-weight: bold; background: #e0f2fe; padding: 5px 10px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. START SCREEN -->
+  <div id="start-screen" class="card">
+    <h1>🐱 Cat or Enemy ⚔️</h1>
+    <input type="text" id="player-name" placeholder="Enter Name" value="Player">
+    <div style="margin-top: 15px;">
+      <button id="btn-create-dual">Create 1v1 (5-Code)</button>
+      <button id="btn-create-team">Create Team (6-Code)</button>
+    </div>
+    <div style="margin-top: 15px;">
+      <input type="text" id="join-code" placeholder="Enter 5 or 6 letter code">
+      <button id="btn-join-game">Join</button>
+    </div>
+  </div>
+
+  <!-- 2. LOBBY SCREEN -->
+  <div id="lobby-screen" class="card hidden">
+    <h2>Lobby</h2>
+    <p>Code: <span id="room-code-tag" class="code-badge"></span></p>
+    <button id="btn-start-game" class="hidden">Start Game</button>
+  </div>
+
+  <!-- 3. DRAWING SCREEN -->
+  <div id="draw-screen" class="card hidden">
+    <div class="canvas-container">
+      <canvas id="canvas" width="660" height="340"></canvas>
+    </div>
+    <button id="btn-clear-canvas" style="margin-top: 10px;">Clear</button>
+    <button id="btn-finish-draw" style="margin-top: 10px; background: #16a34a;">Finish Drawing</button>
+  </div>
+
+  <!-- 4. GUESSING SCREEN -->
+  <div id="guess-screen" class="card hidden">
+    <h2>Guessing Phase</h2>
+    <div class="chat-box">
+      <div id="main-chat-msgs" class="chat-msgs"></div>
+      <div class="chat-input-row">
+        <input type="text" id="main-chat-input" placeholder="Type your guess...">
+        <button id="btn-send-main-chat">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const peerConfig = { config: { iceServers: [{ urls: 'stun:<unsafe_url>stun.l.google.com:19302</unsafe_url>' }] } };
+    let peer, isHost = false, connections = {}, hostConn = null;
+    let myName = "Player", roomCode = "";
+
+    function generateCode(len) {
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"; let res = "";
+      for(let i=0; i<len; i++) res += chars.charAt(Math.floor(Math.random()*chars.length));
+      return res;
+    }
+
+    document.getElementById('btn-create-dual').addEventListener('click', () => initHost(5));
+    document.getElementById('btn-create-team').addEventListener('click', () => initHost(6));
+
+    function initHost(len) {
+      isHost = true;
+      roomCode = generateCode(len);
+      myName = document.getElementById('player-name').value || "Host";
+      peer = new Peer(roomCode, peerConfig);
+      
+      peer.on('open', () => {
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('lobby-screen').classList.remove('hidden');
+        document.getElementById('room-code-tag').innerText = roomCode;
+        document.getElementById('btn-start-game').classList.remove('hidden');
+      });
+
+      peer.on('connection', (conn) => {
+        connections[conn.peer] = conn;
+        setupReceiver(conn);
+      });
+    }
+
+    document.getElementById('btn-join-game').addEventListener('click', () => {
+      roomCode = document.getElementById('join-code').value.trim().toUpperCase();
+      if(!roomCode) return;
+      myName = document.getElementById('player-name').value || "Player";
+      peer = new Peer(peerConfig);
+
+      peer.on('open', () => {
+        hostConn = peer.connect(roomCode);
+        hostConn.on('open', () => {
+          document.getElementById('start-screen').classList.add('hidden');
+          document.getElementById('lobby-screen').classList.remove('hidden');
+          document.getElementById('room-code-tag').innerText = roomCode;
+          setupReceiver(hostConn);
+        });
+      });
+    });
+
+    document.getElementById('btn-start-game').addEventListener('click', () => {
+      broadcast({ type: 'START' });
+      startGame();
+    });
+
+    function setupReceiver(conn) {
+      conn.on('data', (data) => {
+        if(data.type === 'START') startGame();
+        if(data.type === 'DRAW') drawPath(data.x0, data.y0, data.x1, data.y1, false);
+        if(data.type === 'CLEAR') ctx.clearRect(0,0,canvas.width,canvas.height);
+        if(data.type === 'CHAT') appendChat(data.sender, data.text);
+      });
+    }
+
+    function broadcast(data) {
+      if(isHost) Object.values(connections).forEach(c => c.send(data));
+      else if(hostConn) hostConn.send(data);
+    }
+
+    function startGame() {
+      document.getElementById('lobby-screen').classList.add('hidden');
+      document.getElementById('draw-screen').classList.remove('hidden');
+      initCanvas();
+    }
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    function initCanvas() {
+      let drawing = false, lastX = 0, lastY = 0;
+      function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: (clientX - rect.left) * (canvas.width / rect.width), y: (clientY - rect.top) * (canvas.height / rect.height) };
+      }
+      canvas.addEventListener('mousedown', e => { drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; });
+      canvas.addEventListener('mousemove', e => { if(!drawing) return; const p = getPos(e); drawPath(lastX, lastY, p.x, p.y, true); lastX = p.x; lastY = p.y; });
+      canvas.addEventListener('mouseup', () => drawing = false);
+    }
+
+    function drawPath(x0, y0, x1, y1, emit) {
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      if(emit) broadcast({ type: 'DRAW', x0, y0, x1, y1 });
+    }
+
+    document.getElementById('btn-clear-canvas').addEventListener('click', () => {
+      ctx.clearRect(0,0,canvas.width,canvas.height); broadcast({ type: 'CLEAR' });
+    });
+
+    document.getElementById('btn-finish-draw').addEventListener('click', () => {
+      document.getElementById('draw-screen').classList.add('hidden');
+      document.getElementById('guess-screen').classList.remove('hidden');
+    });
+
+    document.getElementById('btn-send-main-chat').addEventListener('click', () => {
+      const input = document.getElementById('main-chat-input');
+      if(!input.value.trim()) return;
+      appendChat(myName, input.value.trim());
+      broadcast({ type: 'CHAT', sender: myName, text: input.value.trim() });
+      input.value = '';
+    });
+
+    function appendChat(sender, text) {
+      const box = document.getElementById('main-chat-msgs');
+      const div = document.createElement('div');
+      const b = document.createElement('b');
+      b.textContent = sender + ": ";
+      div.appendChild(b);
+      div.appendChild(document.createTextNode(text));
+      box.appendChild(div);
+    }
+  </script>
+</body>
+</html>
